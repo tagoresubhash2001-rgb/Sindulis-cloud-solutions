@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Times New Roman', Times, Georgia, serif;
+  --color-sindulis-navy: #0B1299;
+  --color-sindulis-orange: #E65100;
+  --color-sindulis-cyan: #0088FF;
+  --color-sindulis-obsidian: #0F172A;
+  --color-sindulis-darkgray: #374151;
+  --color-sindulis-bg: #FAF9F6;
+}
+
+@layer utilities {
+  .bg-grid-pattern {
+    background-size: 32px 32px;
+    background-image: 
+      linear-gradient(to right, rgba(11, 18, 153, 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(11, 18, 153, 0.03) 1px, transparent 1px);
+  }
+}
+
+/* Progressive Timeline Animations */
+.timeline-line-v {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #cbd5e1; /* slate-200 */
+}
+
+.timeline-line-v-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  background: #0088FF;
+}
+
+.timeline-inactive .timeline-line-v-progress {
+  height: 0%;
+}
+.timeline-active .timeline-line-v-progress {
+  height: 100%;
+  transition: height 1.8s ease-out;
+}
+
+/* Horizontal dashed connector lines or step lines */
+.timeline-inactive .timeline-node {
+  transform: scale(0);
+  opacity: 0;
+}
+.timeline-active .timeline-node {
+  transform: scale(1);
+  opacity: 1;
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.5s ease-out;
+}
+
+.timeline-inactive .timeline-card {
+  opacity: 0;
+  transform: translateY(24px);
+}
+.timeline-active .timeline-card {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.6s ease-out, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Staggered delay helpers for nodes & cards */
+.timeline-active .delay-node-0 { transition-delay: 200ms; }
+.timeline-active .delay-card-0 { transition-delay: 350ms; }
+
+.timeline-active .delay-node-1 { transition-delay: 600ms; }
+.timeline-active .delay-card-1 { transition-delay: 750ms; }
+
+.timeline-active .delay-node-2 { transition-delay: 1000ms; }
+.timeline-active .delay-card-2 { transition-delay: 1150ms; }
+
+.timeline-active .delay-node-3 { transition-delay: 1400ms; }
+.timeline-active .delay-card-3 { transition-delay: 1550ms; }
+
+.timeline-active .delay-node-4 { transition-delay: 1800ms; }
+.timeline-active .delay-card-4 { transition-delay: 1950ms; }
+
+/* Prefers-reduced-motion overrides */
+@media (prefers-reduced-motion: reduce) {
+  .timeline-inactive .timeline-line-v-progress, .timeline-active .timeline-line-v-progress {
+    height: 100% !important;
+    transition: none !important;
+  }
+  .timeline-inactive .timeline-node, .timeline-active .timeline-node {
+    transform: scale(1) !important;
+    opacity: 1 !important;
+    transition: none !important;
+  }
+  .timeline-inactive .timeline-card, .timeline-active .timeline-card {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+    transition: none !important;
+  }
+}
+
