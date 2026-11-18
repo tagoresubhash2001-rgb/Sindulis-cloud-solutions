@@ -1,0 +1,384 @@
+rules_version = '2';
+
+// SINDULIS ERP — Work Management security rules.
+// Role source of truth: employees/{uid}.role (read with get()). Spark plan, so no custom claims.
+// Principles: deny by default, department scoping, project membership, field-level task updates,
+// reviewer-only approvals, append-only activity logs, no deletes except SUPER_ADMIN,
+// archived records read-only.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- identity ----------
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function empPath(id) { return /databases/$(database)/documents/employees/$(id); }
+    function me() { return get(empPath(uid())).data; }
+    function active() { return signedIn() && exists(empPath(uid())) && me().active == true; }
+    function role() { return me().role; }
+    function hasRole(roles) { return active() && role() in roles; }
+    function isSuper() { return hasRole(['SUPER_ADMIN']); }
+    function isAdmin() { return hasRole(['SUPER_ADMIN', 'ADMIN']); }
+    function canWrite() { return active() && role() != 'VIEWER'; }
+    function isDeptHeadOf(dept) { return hasRole(['DEPARTMENT_HEAD']) && dept != null && me().departmentId == dept; }
+
+    // ---------- projects ----------
+    function projPath(pid) { return /databases/$(database)/documents/projects/$(pid); }
+    function proj(pid) { return get(projPath(pid)).data; }
+    function projAfter(pid) { return getAfter(projPath(pid)).data; }
+    function canReadProject(pid) {
+      let p = proj(pid);
+      return isAdmin() || isDeptHeadOf(p.departmentId) || (active() && uid() in p.memberIds);
+    }
+    function managesProject(pid) {
+      let p = proj(pid);
+      return canWrite() && p.isArchived == false
+        && (isAdmin() || isDeptHeadOf(p.departmentId) || p.projectManagerId == uid());
+    }
+    function managesTasksIn(pid) {
+      let p = proj(pid);
+      return managesProject(pid)
+        || (hasRole(['TEAM_LEADER']) && p.isArchived == false && uid() in p.memberIds);
+    }
+    function isProjectWriter(pid) {
+      let p = proj(pid);
+      return canWrite() && p.isArchived == false
+        && (isAdmin() || isDeptHeadOf(p.departmentId) || uid() in p.memberIds);
+    }
+
+    // ---------- tasks ----------
+    function taskPath(tid) { return /databases/$(database)/documents/tasks/$(tid); }
+    function task(tid) { return get(taskPath(tid)).data; }
+    function isAssigneeOf(t) { return canWrite() && uid() in t.assigneeIds; }
+    function canWorkOnTask(tid) {
+      let t = task(tid);
+      return t.isArchived == false && (isAssigneeOf(t) || managesTasksIn(t.projectId));
+    }
+
+    // ---------- write helpers ----------
+    function data() { return request.resource.data; }
+    function changed() { return data().diff(resource.data).affectedKeys(); }
+    function onlyChanged(keys) { return changed().hasOnly(keys); }
+    function unchanged(keys) { return !changed().hasAny(keys); }
+    function auditOnCreate() {
+      return data().createdBy == uid() && data().createdAt == request.time
+        && data().updatedBy == uid() && data().updatedAt == request.time
+        && data().isArchived == false;
+    }
+    function auditOnUpdate() {
+      return data().updatedBy == uid() && data().updatedAt == request.time
+        && unchanged(['createdAt', 'createdBy']);
+    }
+    function notArchived() { return resource.data.isArchived == false; }
+    function archiveFields() {
+      return ['isArchived', 'archivedAt', 'archivedBy', 'updatedAt', 'updatedBy'];
+    }
+    // Archive (by whoever `allowed`) / restore (admins only), touching archive fields only.
+    function isArchiveToggle(allowed) {
+      return onlyChanged(archiveFields()) && data().updatedBy == uid() && data().updatedAt == request.time
+        && ((resource.data.isArchived == false && data().isArchived == true
+              && data().archivedBy == uid() && data().archivedAt == request.time && allowed)
+          || (resource.data.isArchived == true && data().isArchived == false && isAdmin()));
+    }
+    function str(v, max) { return v is string && v.size() <= max; }
+    function nonEmpty(v, max) { return v is string && v.size() > 0 && v.size() <= max; }
+
+    // Legal task status transitions (mirrors src/erp/lib/workflow.ts).
+    function legal(from, to) {
+      return (from == 'PENDING' && to == 'IN_PROGRESS')
+        || (from == 'IN_PROGRESS' && to == 'WAITING_APPROVAL')
+        || (from == 'WAITING_APPROVAL' && to in ['COMPLETED', 'IN_PROGRESS'])
+        || (from == 'COMPLETED' && to == 'IN_PROGRESS')
+        || (from == 'CANCELLED' && to == 'PENDING')
+        || (from in ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVAL'] && to == 'CANCELLED');
+    }
+
+    // ================= collections =================
+
+    match /settings/{id} {
+      allow read: if active();
+      allow create, update: if isAdmin();
+      allow delete: if isSuper();
+    }
+
+    match /counters/{name} {
+      allow read: if active();
+      allow create: if canWrite() && data().keys().hasOnly(['value']) && data().value == 1;
+      allow update: if canWrite() && data().keys().hasOnly(['value']) && data().value == resource.data.value + 1;
+      allow delete: if isSuper();
+    }
+
+    match /departments/{id} {
+      allow read: if active();
+      allow create: if isAdmin() && auditOnCreate() && nonEmpty(data().name, 80);
+      allow update: if isAdmin() && (isArchiveToggle(true) || (notArchived() && auditOnUpdate()));
+      allow delete: if isSuper();
+    }
+
+    match /employees/{id} {
+      // Everyone active sees the directory; anyone can read their own record (even if deactivated).
+      allow read: if active() || (signedIn() && uid() == id);
+
+      // 1) Admin creates directly, or 2) the invitee claims an invite for their verified email.
+      allow create: if (isAdmin() && auditOnCreate()
+                          && (isSuper() || !(data().role in ['SUPER_ADMIN', 'ADMIN'])))
+        || (signedIn() && uid() == id && inviteMatches(data()));
+
+      // Admins manage employees. Only Super Admin can grant or edit admin roles.
+      // Nobody changes their own role or active flag. Employees edit only their own profile basics.
+      allow update: if notArchived() && auditOnUpdate() && (
+          (isAdmin() && unchanged(['email'])
+             && (isSuper() || (!(data().role in ['SUPER_ADMIN', 'ADMIN']) && !(resource.data.role in ['SUPER_ADMIN', 'ADMIN'])))
+             && (uid() != id || unchanged(['role', 'active'])))
+          || (active() && uid() == id && onlyChanged(['name', 'phone', 'avatarUrl', 'updatedAt', 'updatedBy']))
+        );
+      allow delete: if isSuper();
+
+      function inviteMatches(d) {
+        let email = request.auth.token.email.lower();
+        let invPath = /databases/$(database)/documents/invites/$(email);
+        let inv = get(invPath).data;
+        return request.auth.token.email_verified == true
+          && exists(invPath) && inv.claimedBy == null
+          && d.email == email && d.role == inv.role && d.departmentId == inv.departmentId
+          && d.active == true && d.createdBy == uid() && d.isArchived == false
+          && getAfter(invPath).data.claimedBy == uid();
+      }
+    }
+
+    match /invites/{email} {
+      allow read: if isAdmin() || (signedIn() && request.auth.token.email.lower() == email);
+      allow create: if isAdmin() && auditOnCreate() && data().email == email && data().claimedBy == null
+        && (isSuper() || !(data().role in ['SUPER_ADMIN', 'ADMIN']));
+      allow update: if (isAdmin() && unchanged(['email', 'claimedBy']))
+        || (signedIn() && request.auth.token.email_verified == true
+            && request.auth.token.email.lower() == email && resource.data.claimedBy == null
+            && onlyChanged(['claimedBy', 'claimedAt']) && data().claimedBy == uid()
+            && data().claimedAt == request.time
+            && existsAfter(/databases/$(database)/documents/employees/$(uid())));
+      allow delete: if isSuper();
+    }
+
+    match /clients/{id} {
+      allow read: if active();
+      allow create: if hasRole(['SUPER_ADMIN', 'ADMIN', 'DEPARTMENT_HEAD', 'PROJECT_MANAGER']) && auditOnCreate()
+        && nonEmpty(data().name, 120) && data().code is string;
+      allow update: if hasRole(['SUPER_ADMIN', 'ADMIN', 'DEPARTMENT_HEAD', 'PROJECT_MANAGER'])
+        && (isArchiveToggle(isAdmin()) || (notArchived() && auditOnUpdate() && unchanged(['code'])));
+      allow delete: if isSuper();
+    }
+
+    match /projects/{pid} {
+      allow read: if isAdmin() || isDeptHeadOf(resource.data.departmentId)
+        || (active() && uid() in resource.data.memberIds);
+      allow create: if canWrite() && auditOnCreate() && validProject()
+        && (isAdmin() || isDeptHeadOf(data().departmentId)
+            || (hasRole(['PROJECT_MANAGER']) && data().projectManagerId == uid()));
+      allow update: if canWrite() && (
+          isArchiveToggle(isAdmin() || isDeptHeadOf(resource.data.departmentId))
+          || (notArchived() && auditOnUpdate() && validProject() && unchanged(['code'])
+              && (isAdmin()
+                  || (isDeptHeadOf(resource.data.departmentId) && isDeptHeadOf(data().departmentId))
+                  || (resource.data.projectManagerId == uid()
+                      && unchanged(['departmentId', 'projectManagerId']))))
+        );
+      allow delete: if isSuper();
+
+      function validProject() {
+        return nonEmpty(data().name, 140) && data().clientId is string && data().departmentId is string
+          && data().memberIds is list && data().projectManagerId in data().memberIds
+          && data().memberIds.size() <= 100
+          && data().status in ['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
+      }
+    }
+
+    match /milestones/{id} {
+      allow read: if canReadProject(resource.data.projectId);
+      allow create: if managesProject(data().projectId) && auditOnCreate()
+        && data().departmentId == proj(data().projectId).departmentId && nonEmpty(data().title, 140);
+      allow update: if managesProject(resource.data.projectId)
+        && (isArchiveToggle(true) || (notArchived() && auditOnUpdate() && unchanged(['projectId', 'departmentId'])));
+      allow delete: if isSuper();
+    }
+
+    match /tasks/{tid} {
+      allow read: if (active() && uid() in resource.data.assigneeIds) || canReadProject(resource.data.projectId);
+
+      allow create: if managesTasksIn(data().projectId) && auditOnCreate()
+        && data().status == 'PENDING' && data().revisionCount == 0
+        && data().actualHours == 0 && data().checklistDone == 0 && data().checklistTotal == 0
+        && data().departmentId == proj(data().projectId).departmentId
+        && nonEmpty(data().title, 200) && data().code is string
+        && data().assigneeIds is list && data().assigneeIds.size() > 0
+        && data().assigneeIds.hasOnly(proj(data().projectId).memberIds)
+        && data().ownerId in data().assigneeIds
+        && (data().reviewerId == null || data().reviewerId in proj(data().projectId).memberIds);
+
+      allow update: if isArchiveToggle(managesProject(resource.data.projectId))
+        || (notArchived() && auditOnUpdate()
+            && unchanged(['code', 'projectId', 'departmentId'])
+            && (data().status == resource.data.status || legal(resource.data.status, data().status))
+            && (managerUpdate() || assigneeUpdate() || reviewerUpdate()));
+
+      allow delete: if isSuper();
+
+      function from() { return resource.data.status; }
+      function to() { return data().status; }
+
+      // Managers (admin, dept head, PM, team leader in project) edit anything but stay in-project.
+      function managerUpdate() {
+        return managesTasksIn(resource.data.projectId)
+          && data().assigneeIds.size() > 0
+          && data().assigneeIds.hasOnly(proj(resource.data.projectId).memberIds)
+          && (to() != 'CANCELLED' || from() == 'CANCELLED' || nonEmpty(data().cancelReason, 1000))
+          && (!(from() == 'WAITING_APPROVAL' && to() == 'IN_PROGRESS') || data().revisionCount == resource.data.revisionCount + 1);
+      }
+      // Assignees: start, submit, checklist counters and actual hours only.
+      function assigneeUpdate() {
+        return isAssigneeOf(resource.data)
+          && onlyChanged(['status', 'checklistTotal', 'checklistDone', 'actualHours', 'updatedAt', 'updatedBy'])
+          && data().actualHours >= resource.data.actualHours
+          && (to() == from()
+              || (from() == 'PENDING' && to() == 'IN_PROGRESS')
+              || (from() == 'IN_PROGRESS' && to() == 'WAITING_APPROVAL' && resource.data.reviewerId != null));
+      }
+      // Reviewer: approve or reject a task waiting for approval.
+      function reviewerUpdate() {
+        return canWrite() && resource.data.reviewerId == uid() && from() == 'WAITING_APPROVAL'
+          && !(uid() in resource.data.assigneeIds)
+          && ((to() == 'COMPLETED' && onlyChanged(['status', 'completedAt', 'updatedAt', 'updatedBy'])
+               && data().completedAt == request.time)
+            || (to() == 'IN_PROGRESS' && onlyChanged(['status', 'revisionCount', 'updatedAt', 'updatedBy'])
+               && data().revisionCount == resource.data.revisionCount + 1));
+      }
+    }
+
+    match /task_checklists/{id} {
+      allow read: if canReadProject(resource.data.projectId);
+      allow create: if auditOnCreate() && canWorkOnTask(data().taskId)
+        && task(data().taskId).projectId == data().projectId && nonEmpty(data().text, 300);
+      allow update: if canWorkOnTask(resource.data.taskId) && auditOnUpdate()
+        && unchanged(['taskId', 'projectId'])
+        && (notArchived() || isArchiveToggle(true))
+        && (data().done == false || data().doneBy == uid() || data().doneBy == resource.data.doneBy);
+      allow delete: if isSuper();
+    }
+
+    match /task_submissions/{id} {
+      allow read: if canReadProject(resource.data.projectId);
+      // Written in the same batch that moves the task to WAITING_APPROVAL.
+      allow create: if auditOnCreate() && canWorkOnTask(data().taskId)
+        && data().submittedBy == uid() && data().status == 'SUBMITTED'
+        && task(data().taskId).projectId == data().projectId
+        && getAfter(taskPath(data().taskId)).data.status == 'WAITING_APPROVAL';
+      allow update: if notArchived() && auditOnUpdate()
+        && onlyChanged(['status', 'updatedAt', 'updatedBy']) && data().status in ['APPROVED', 'REJECTED']
+        && (task(resource.data.taskId).reviewerId == uid() || managesProject(resource.data.projectId))
+        || isArchiveToggle(managesProject(resource.data.projectId));
+      allow delete: if isSuper();
+    }
+
+    match /approvals/{id} {
+      allow read: if (active() && (resource.data.reviewerId == uid() || resource.data.requestedBy == uid()))
+        || canReadProject(resource.data.projectId);
+      allow create: if auditOnCreate() && data().entityType == 'task' && data().level is int
+        && task(data().entityId).projectId == data().projectId
+        && (
+          // Request: by an assignee/manager submitting work, addressed to the task's reviewer.
+          (data().decision == null && data().requestedBy == uid() && canWorkOnTask(data().entityId)
+            && data().reviewerId == task(data().entityId).reviewerId)
+          // Direct decision: by the reviewer or a project manager.
+          || (data().decision in ['APPROVED', 'REJECTED', 'CHANGES_REQUESTED'] && data().decidedBy == uid()
+            && (task(data().entityId).reviewerId == uid() || managesProject(data().projectId)))
+        );
+      // Only the assigned reviewer (or a project manager) decides, exactly once.
+      allow update: if (notArchived() && auditOnUpdate() && resource.data.decision == null
+          && onlyChanged(['decision', 'comment', 'decidedAt', 'decidedBy', 'updatedAt', 'updatedBy'])
+          && data().decision in ['APPROVED', 'REJECTED', 'CHANGES_REQUESTED']
+          && data().decidedBy == uid() && data().decidedAt == request.time
+          && (data().decision == 'APPROVED' || nonEmpty(data().comment, 5000))
+          && canWrite() && (resource.data.reviewerId == uid() || managesProject(resource.data.projectId)))
+        || isArchiveToggle(managesProject(resource.data.projectId));
+      allow delete: if isSuper();
+    }
+
+    match /task_comments/{id} {
+      allow read: if canReadProject(resource.data.projectId);
+      allow create: if auditOnCreate() && data().authorId == uid() && nonEmpty(data().body, 5000)
+        && (isProjectWriter(data().projectId)
+            || (data().taskId != null && isAssigneeOf(task(data().taskId))))
+        && (data().taskId == null || task(data().taskId).projectId == data().projectId);
+      allow update: if (notArchived() && resource.data.authorId == uid() && auditOnUpdate()
+          && onlyChanged(['body', 'editedAt', 'updatedAt', 'updatedBy']) && nonEmpty(data().body, 5000))
+        || isArchiveToggle(managesProject(resource.data.projectId));
+      allow delete: if isSuper();
+    }
+
+    match /project_files/{id} {
+      allow read: if canReadProject(resource.data.projectId);
+      allow create: if auditOnCreate() && data().uploadedBy == uid()
+        && (isProjectWriter(data().projectId) || (data().taskId != null && isAssigneeOf(task(data().taskId))))
+        && data().storagePath == 'projects/' + data().projectId + '/files/' + id + '/' + data().name
+        && data().size is int && data().size <= 25 * 1024 * 1024;
+      allow update: if isArchiveToggle(managesProject(resource.data.projectId));
+      allow delete: if isSuper();
+    }
+
+    match /work_time_entries/{id} {
+      allow read: if (active() && resource.data.employeeId == uid()) || canReadProject(resource.data.projectId);
+      allow create: if auditOnCreate() && data().employeeId == uid() && canWorkOnTask(data().taskId)
+        && task(data().taskId).projectId == data().projectId
+        && data().minutes is int && data().minutes > 0 && data().minutes <= 1440;
+      allow update: if false;
+      allow delete: if isSuper();
+    }
+
+    // Append-only audit trail.
+    match /activity_logs/{id} {
+      allow read: if isAdmin()
+        || (active() && resource.data.actorId == uid())
+        || isDeptHeadOf(resource.data.departmentId)
+        || (resource.data.projectId != null && canReadProject(resource.data.projectId));
+      allow create: if active() && data().actorId == uid() && data().at == request.time
+        && str(data().action, 60) && str(data().summary, 500);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /notifications/{id} {
+      // `resource == null` lets the client check whether a deterministic reminder already exists.
+      allow read: if signedIn() && (resource == null || resource.data.userId == uid());
+      allow create: if active() && data().createdBy == uid() && data().createdAt == request.time
+        && data().read == false && data().userId is string
+        && (data().userId != uid() || data().type in ['DEADLINE_APPROACHING', 'TASK_OVERDUE', 'PROJECT_DEADLINE'])
+        && str(data().title, 200) && str(data().body, 1000) && str(data().link, 300);
+      allow update: if signedIn() && resource.data.userId == uid()
+        && onlyChanged(['read', 'readAt']) && data().read == true;
+      allow delete: if signedIn() && resource.data.userId == uid();
+    }
+
+    match /archive_records/{id} {
+      allow read: if isAdmin() || isDeptHeadOf(resource.data.departmentId);
+      allow create: if canWrite() && data().archivedBy == uid() && data().archivedAt == request.time
+        && data().restoredAt == null
+        && getAfter(/databases/$(database)/documents/$(data().originalCollection)/$(data().originalId)).data.isArchived == true;
+      allow update: if isAdmin() && onlyChanged(['restoredAt', 'restoredBy'])
+        && data().restoredBy == uid() && data().restoredAt == request.time;
+      allow delete: if isSuper();
+    }
+
+    // Public website lead capture: create-only for anyone, admins read and update status.
+    match /leads/{id} {
+      allow create: if data().keys().hasOnly(['source', 'name', 'email', 'phone', 'company', 'service', 'message', 'extra', 'status', 'createdAt'])
+        && data().source in ['portal-waitlist', 'techlis-contact', 'techlis-quote', 'sinfox-contact', 'sinfox-quote', 'edulis-contact', 'edulis-enroll']
+        && data().status == 'NEW' && data().createdAt == request.time
+        && str(data().name, 120) && str(data().email, 200) && str(data().phone, 40)
+        && str(data().company, 160) && str(data()['service'], 160) && str(data().message, 4000)
+        && data().extra is map && data().extra.size() <= 15
+        && (data().name.size() > 0 || data().email.size() > 0 || data().phone.size() > 0);
+      allow read: if isAdmin();
+      allow update: if isAdmin() && onlyChanged(['status', 'updatedAt', 'updatedBy'])
+        && data().status in ['NEW', 'CONTACTED', 'QUALIFIED', 'CLOSED'];
+      allow delete: if isSuper();
+    }
+  }
+}

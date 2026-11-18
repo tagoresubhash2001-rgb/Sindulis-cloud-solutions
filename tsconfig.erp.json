@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": [
+      "vite/client"
+    ]
+  },
+  "include": [
+    "src/erp/**/*",
+    "src/vite-env.d.ts",
+    "src/lib/leads.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

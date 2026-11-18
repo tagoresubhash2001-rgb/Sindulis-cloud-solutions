@@ -1,54 +1,112 @@
-import React, { useState } from 'react';
-import { X, Lock, Key, ShieldCheck, Sparkles, ArrowRight, Check, AlertCircle } from 'lucide-react';
-import { UserSession } from '../types';
+import React, { useEffect, useState } from 'react';
+import { X, Lock, Key, ShieldCheck, AlertCircle } from 'lucide-react';
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  type User,
+} from 'firebase/auth';
+import { useNavigate } from 'react-router-dom';
+import { auth } from '../lib/firebase';
 
 interface LoginModalProps {
   onClose: () => void;
-  session: UserSession;
-  setSession: (session: UserSession) => void;
-  onShowToast: (msg: string) => void;
+  onLoginSuccess?: (email: string) => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({
-  onClose,
-  session,
-  setSession,
-  onShowToast
-}) => {
-  const [email, setEmail] = useState('user@sinduliscloud.com');
-  const [password, setPassword] = useState('••••••••••••');
+const friendlyError = (code: string): string => {
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please wait a few minutes and try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Google sign-in was cancelled.';
+    case 'auth/network-request-failed':
+      return 'Network error. Check your connection and try again.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Contact your administrator.';
+    default:
+      return 'Sign-in failed. Please try again.';
+  }
+};
+
+export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLoginSuccess }) => {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [selectedPillar, setSelectedPillar] = useState<'all' | 'edulis' | 'sinfoxmedia' | 'sindulis'>('all');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(auth.currentUser);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  useEffect(() => onAuthStateChanged(auth, setUser), []);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setSession({
-        isLoggedIn: true,
-        email: email,
-        name: email.split('@')[0].toUpperCase(),
-        role: 'Enterprise Administrator',
-        accessibleServices: ['edulis', 'sinfoxmedia', 'sindulis']
-      });
-      onShowToast(`Authenticated successfully as ${email.split('@')[0]} via Sindulis Cloud SSO!`);
-      onClose();
-    }, 1000);
+  const finish = (signedInEmail: string) => {
+    onLoginSuccess?.(signedInEmail);
+    onClose();
+    navigate('/erp');
   };
 
-  const handleLogout = () => {
-    setSession({ isLoggedIn: false });
-    onShowToast('Logged out of Sindulis Cloud SSO session.');
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setInfo(null);
+    setIsLoading(true);
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      finish(cred.user.email ?? email.trim());
+    } catch (err) {
+      setError(friendlyError((err as { code?: string }).code ?? ''));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    setError(null);
+    setInfo(null);
+    setIsLoading(true);
+    try {
+      const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+      finish(cred.user.email ?? '');
+    } catch (err) {
+      setError(friendlyError((err as { code?: string }).code ?? ''));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setError(null);
+    setInfo(null);
+    if (!email.trim()) {
+      setError('Enter your email address first, then choose “Forgot password”.');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+    } catch {
+      // Do not reveal whether the address exists.
+    }
+    setInfo('If an account exists for that address, a password reset link has been sent.');
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-        
+      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[95vh] overflow-y-auto">
         {/* Header */}
         <div className="p-6 bg-gradient-to-r from-[#0B1299] via-[#0B1299] to-[#111827] text-white flex items-start justify-between">
           <div className="space-y-1">
@@ -56,9 +114,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <Key className="w-3.5 h-3.5 text-[#E65100]" />
               <span>SINGLE SIGN-ON VAULT</span>
             </div>
-            <h3 className="text-2xl font-extrabold tracking-tight text-white pt-1">
-              ACCOUNT LOGIN PORTAL
-            </h3>
+            <h3 className="text-2xl font-extrabold tracking-tight text-white pt-1">ACCOUNT LOGIN PORTAL</h3>
             <p className="text-xs text-slate-300">
               Unified authentication for EduLis, Sinfox Media & Sindulis Solutions
             </p>
@@ -66,6 +122,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -74,8 +131,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-6 space-y-6">
-
-          {session.isLoggedIn ? (
+          {user ? (
             <div className="space-y-5 text-center py-4">
               <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
                 <ShieldCheck className="w-10 h-10 text-emerald-600" />
@@ -83,29 +139,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
               <div>
                 <h4 className="text-xl font-extrabold text-slate-900">
-                  Welcome, {session.name}
+                  Welcome, {user.displayName || (user.email ?? '').split('@')[0]}
                 </h4>
                 <p className="text-xs text-slate-500 mt-1">
-                  Connected Session: <span className="font-semibold text-slate-800">{session.email}</span>
+                  Connected Session: <span className="font-semibold text-slate-800">{user.email}</span>
                 </p>
-              </div>
-
-              {/* Service Access Badges */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left space-y-2">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Active Ecosystem Permissions
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-2.5 py-1 rounded-md bg-[#E65100]/10 text-[#E65100] font-bold text-xs">
-                    ✓ edulis Portal
-                  </span>
-                  <span className="px-2.5 py-1 rounded-md bg-[#111827] text-white font-bold text-xs">
-                    ✓ Sinfox Media Portal
-                  </span>
-                  <span className="px-2.5 py-1 rounded-md bg-[#0B1299]/10 text-[#0B1299] font-bold text-xs">
-                    ✓ Sindulis Solutions Portal
-                  </span>
-                </div>
               </div>
 
               <div className="pt-2 flex justify-center gap-3">
@@ -116,16 +154,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   Sign Out SSO
                 </button>
                 <button
-                  onClick={onClose}
+                  onClick={() => {
+                    onClose();
+                    navigate('/erp');
+                  }}
                   className="px-6 py-2.5 rounded-xl bg-[#0B1299] text-white text-xs font-bold hover:bg-[#E65100] transition-colors cursor-pointer"
                 >
-                  Return to Ecosystem
+                  Open ERP Workspace
                 </button>
               </div>
             </div>
           ) : (
             <form onSubmit={handleLogin} className="space-y-4">
-              
               {/* Target Workspace Picker */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -170,12 +210,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
               {/* Email */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label htmlFor="sso-email" className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Corporate Email Address
                 </label>
                 <input
+                  id="sso-email"
                   type="email"
                   required
+                  autoComplete="username"
+                  placeholder="you@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0B1299] text-sm text-slate-900 font-medium"
@@ -184,23 +227,51 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
               {/* Password */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label htmlFor="sso-password" className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Security Token / Password
                 </label>
                 <input
+                  id="sso-password"
                   type="password"
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0B1299] text-sm text-slate-900 font-medium"
                 />
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="mt-1.5 text-xs font-semibold text-[#0B1299] hover:text-[#E65100] cursor-pointer"
+                >
+                  Forgot password?
+                </button>
               </div>
+
+              {error && (
+                <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+              {info && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">{info}</div>
+              )}
 
               {/* SSO Notice */}
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-[#0B1299] shrink-0" />
-                <span>Encrypted OAuth2 / SAML authentication managed by Firebase Auth</span>
+                <span>Encrypted authentication managed by Firebase Auth. Accounts are created by your administrator.</span>
               </div>
+
+              <button
+                type="button"
+                onClick={handleGoogle}
+                disabled={isLoading}
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-bold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Continue with Google
+              </button>
 
               {/* Actions */}
               <div className="pt-2 flex items-center justify-between gap-3">
@@ -226,14 +297,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   )}
                 </button>
               </div>
-
             </form>
           )}
-
         </div>
-
       </div>
-
     </div>
   );
 };

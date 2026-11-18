@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+firestore-debug.log
+firebase-debug.log
+storage-debug.log
+ui-debug.log
+.firebase/
+service-account*.json
+*-adminsdk-*.json
+test-results/

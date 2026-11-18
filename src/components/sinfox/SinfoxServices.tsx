@@ -267,7 +267,7 @@ export const SinfoxServices: React.FC<SinfoxServicesProps> = ({
             alt="Sinfox Growth Architecture - Integrated capability environment"
             className="w-full h-full object-cover object-[75%_center] sm:object-right opacity-70"
             loading="eager"
-            fetchpriority="high"
+            fetchPriority="high"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-950/40" />

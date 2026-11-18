@@ -1,0 +1,39 @@
+rules_version = '2';
+
+// Project files: projects/{projectId}/files/{fileId}/{name}
+// Read: project readers. Write: active, non-viewer project members (or admins / dept head), ≤ 25 MB,
+// create-only (new versions are new objects). Delete: Super Admin only.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function emp() { return firestore.get(/databases/(default)/documents/employees/$(request.auth.uid)).data; }
+    function active() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/employees/$(request.auth.uid))
+        && emp().active == true;
+    }
+    function isAdmin() { return active() && emp().role in ['SUPER_ADMIN', 'ADMIN']; }
+    function proj(pid) { return firestore.get(/databases/(default)/documents/projects/$(pid)).data; }
+    function canRead(pid) {
+      let p = proj(pid);
+      return isAdmin()
+        || (active() && emp().role == 'DEPARTMENT_HEAD' && emp().departmentId == p.departmentId)
+        || (active() && request.auth.uid in p.memberIds);
+    }
+    function canUpload(pid) {
+      return canRead(pid) && emp().role != 'VIEWER' && proj(pid).isArchived == false;
+    }
+
+    match /projects/{projectId}/files/{fileId}/{fileName} {
+      allow read: if canRead(projectId);
+      allow create: if canUpload(projectId)
+        && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.metadata.uploadedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if active() && emp().role == 'SUPER_ADMIN';
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

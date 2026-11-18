@@ -112,6 +112,7 @@ export default function App() {
 
             {sinfoxPage === 'services' && (
               <SinfoxServices
+                onNavigate={(page) => setSinfoxPage(page)}
                 onOpenQuoteModal={(serviceName) =>
                   setModalState({ type: 'sinfox-quote', defaultService: serviceName })
                 }
@@ -283,7 +284,7 @@ export default function App() {
             </div>
 
             <BottomActionArea
-              onOpenContact={() => setUtilityModal('contact')}
+              onOpenLogin={() => setModalState({ type: 'login' })}
             />
           </main>
 
@@ -307,6 +308,7 @@ export default function App() {
         <PillarDetailModal
           card={modalState.card}
           onClose={() => setModalState(null)}
+          onOpenLogin={() => setModalState({ type: 'login' })}
           onShowToast={handleShowToast}
         />
       )}
@@ -322,7 +324,7 @@ export default function App() {
       {modalState?.type === 'login' && (
         <LoginModal
           onClose={() => setModalState(null)}
-          onLoginSuccess={(email) => {
+          onLoginSuccess={(email: string) => {
             setSession({ isLoggedIn: true, email, name: email.split('@')[0] });
             handleShowToast(`Welcome back, ${email.split('@')[0]}!`);
           }}
@@ -358,6 +360,7 @@ export default function App() {
         <UtilityModal
           type={utilityModal}
           onClose={() => setUtilityModal(null)}
+          onShowToast={handleShowToast}
         />
       )}
 

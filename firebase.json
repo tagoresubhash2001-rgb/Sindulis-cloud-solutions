@@ -1,4 +1,11 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "hosting": {
     "public": "dist",
     "ignore": [
@@ -16,14 +23,38 @@
     ],
     "headers": [
       {
-        "source": "**/*.@(jpg|jpeg|gif|png|svg|webp|js|css)",
+        "source": "/assets/**/*.@(js|css)",
         "headers": [
           {
             "key": "Cache-Control",
             "value": "max-age=31536000, immutable"
           }
         ]
+      },
+      {
+        "source": "**/*.@(jpg|jpeg|gif|png|svg|webp)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "max-age=86400"
+          }
+        ]
+      },
+      {
+        "source": "**",
+        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+          { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+        ]
       }
     ]
+  },
+  "emulators": {
+    "auth": { "port": 9099, "host": "127.0.0.1" },
+    "firestore": { "port": 8080, "host": "127.0.0.1" },
+    "storage": { "port": 9199, "host": "127.0.0.1" },
+    "ui": { "enabled": true, "port": 4000 },
+    "singleProjectMode": true
   }
 }
