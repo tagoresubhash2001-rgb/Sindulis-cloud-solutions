@@ -38,10 +38,20 @@ Running log for the build described in `WORK_MANAGEMENT_BUILD_PROMPT.md`.
 | # | Phase | Status |
 |---|---|---|
 | 1 | Audit + plan | ✅ |
-| 2 | Router, real Auth, roles | ✅ router + LoginModal on Firebase Auth; ERP shell in progress |
-| 3 | Data model, services, zod, counters, rules + rules tests | ✅ 46 rules tests (41 Firestore + 5 Storage) pass in the emulator; 36 unit tests pass |
-| 4–12 | UI modules | in progress |
-| 13 | Testing, CI/CD, deploy | pending |
+| 2 | Router, ERP shell, real Auth, roles, bootstrap script | ✅ |
+| 3 | Data model, services, zod, counters, rules + rules tests | ✅ 47 rules tests |
+| 4 | Clients, Projects, Project Workspace | ✅ |
+| 5 | Tasks (table/kanban/calendar/timeline), checklist, workflow engine | ✅ |
+| 6 | My Workspace, Team, Milestones | ✅ |
+| 7 | Submissions, Approvals & Reviews | ✅ |
+| 8 | Files (Storage), Discussions, Activity Logs | ✅ (Storage in production needs Blaze) |
+| 9 | Archive Center | ✅ |
+| 10 | Notifications (client-side; Spark plan) | ✅ |
+| 11 | Dashboard KPIs, Reports, CSV/print | ✅ |
+| 12 | Public forms → leads, LoginModal → real auth | ✅ |
+| 13 | Tests, security review, CI/CD | ✅ local · ⏳ deploy blocked on owner sign-in |
+
+See `WORK_MANAGEMENT_REPORT.md` for results, limitations and owner actions.
 
 ## Notes for local testing in a proxied sandbox
 `firebase-tools` routes its own loopback calls (Storage emulator → Firestore emulator) through `HTTPS_PROXY` and ignores `NO_PROXY`. Here the cross-service storage rules were tested with a local preload shim that sends only loopback traffic directly. CI runners have no proxy, so they don't need it.

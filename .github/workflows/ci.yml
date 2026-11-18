@@ -1,0 +1,101 @@
+name: CI / Deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4 # Firestore / Storage emulators
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - name: Lint + typecheck
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Security rules tests (emulator)
+        run: npm run test:rules
+      - name: Install Playwright (CI only, not saved to package.json)
+        run: npm install --no-save playwright@1.52.0 && npx playwright install --with-deps chromium
+      - name: End-to-end acceptance test (emulator)
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: |
+            docs/screenshots
+            test-results
+          if-no-files-found: ignore
+      - name: Build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+  preview:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SINDULIS }}
+          projectId: sindulis
+          expires: 7d
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Deploy Firestore rules + indexes and Storage rules
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SINDULIS }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" npx firebase deploy --only firestore:rules,firestore:indexes,storage --project sindulis --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SINDULIS }}
+          projectId: sindulis
+          channelId: live

@@ -1,20 +1,17 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Sindulis Cloud Solutions
 
-# Run and deploy your AI Studio app
+Public website (Sindulis portal · Tech Lis · Sinfox Media · EduLis) at `/`, and **SINDULIS ERP — Work Management** at `/erp`.
+Vite + React 19 + TypeScript + Tailwind v4 on Firebase (Auth, Firestore, Storage, Hosting), project `sindulis`.
 
-This contains everything you need to run your app locally.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server against production Firebase |
+| `npm run emulators` + `npm run dev:emulators` | Dev against local emulators (seed with `npm run seed:demo`) |
+| `npm run lint` | Typecheck (public site + strict ERP) |
+| `npm test` | Unit tests |
+| `npm run test:rules` | Firestore/Storage security-rules tests in the emulator |
+| `npm run test:e2e` | Browser acceptance test against the emulators (needs Playwright) |
+| `npm run build` | Production build to `dist/` |
+| `npm run bootstrap:super-admin -- you@company.com` | Create the first Super Admin + default departments |
 
-View your app in AI Studio: https://ai.studio/apps/ed860424-ff0b-465e-b404-0d10ff43de6a
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Docs: `docs/WORK_MANAGEMENT_REPORT.md` (status, rules, owner actions), `docs/WORK_MANAGEMENT_PROGRESS.md` (decisions log).
