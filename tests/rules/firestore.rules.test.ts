@@ -222,11 +222,16 @@ describe('employees & roles', () => {
       const b = writeBatch(db);
       b.set(doc(db, 'employees/newUid'), emp(role));
       b.update(doc(db, 'invites/newbie@example.com'), { claimedBy: 'newUid', claimedAt: serverTimestamp() });
+      b.set(doc(db, 'activity_logs/join-newUid'), log('newUid', { entityType: 'employee', entityId: 'newUid', projectId: null, action: 'joined' }));
       return b.commit();
     };
     await assertFails(claim(claimDb(false), 'EMPLOYEE'));
     await assertFails(claim(claimDb(true), 'SUPER_ADMIN'));
     await assertSucceeds(claim(claimDb(true), 'EMPLOYEE'));
+  });
+  it('non-employees cannot write activity logs', async () => {
+    const db = env.authenticatedContext('evil', { email: 'evil@example.com', email_verified: true }).firestore() as unknown as Firestore;
+    await assertFails(setDoc(doc(db, 'activity_logs/x'), log('evil')));
   });
   it('strangers cannot self-create an employee record', async () => {
     const db = env.authenticatedContext('evil', { email: 'evil@example.com', email_verified: true }).firestore() as unknown as Firestore;

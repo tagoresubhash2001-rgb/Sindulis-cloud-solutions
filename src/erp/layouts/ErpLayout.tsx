@@ -104,13 +104,13 @@ export function ErpLayout() {
         </div>
       )}
       <div className={cx('transition-[padding]', collapsed ? 'lg:pl-16' : 'lg:pl-60')}>
-        <header className="sticky top-0 z-20 h-14 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-2 px-3 sm:px-5">
+        <header className="sticky top-0 z-20 h-14 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-5">
           <IconButton label="Open menu" className="lg:hidden" onClick={() => setMobileOpen(true)}><Menu className="w-5 h-5" /></IconButton>
-          <button onClick={() => setSearchOpen(true)} className="flex items-center gap-2 flex-1 max-w-md rounded-lg bg-slate-100 hover:bg-slate-200/70 px-3 py-1.5 text-sm text-slate-500" aria-label="Search">
-            <Search className="w-4 h-4" /> <span className="truncate">Search projects, tasks, clients…</span>
+          <button onClick={() => setSearchOpen(true)} className="flex items-center gap-2 flex-1 min-w-0 max-w-md rounded-lg bg-slate-100 hover:bg-slate-200/70 px-3 py-1.5 text-sm text-slate-500" aria-label="Search">
+            <Search className="w-4 h-4 shrink-0" /> <span className="truncate"><span className="sm:hidden">Search…</span><span className="hidden sm:inline">Search projects, tasks, clients…</span></span>
             <kbd className="ml-auto hidden sm:inline text-[10px] font-semibold bg-white rounded px-1.5 py-0.5 ring-1 ring-slate-200">Ctrl K</kbd>
           </button>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 shrink-0">
             <div className="relative">
               <button onClick={() => setMenu(menu === 'create' ? null : 'create')} className="inline-flex items-center gap-1 rounded-lg bg-sindulis-navy text-white px-2.5 sm:px-3 py-1.5 text-sm font-semibold hover:bg-indigo-800" aria-haspopup="menu" data-testid="quick-create">
                 <Plus className="w-4 h-4" /> <span className="hidden sm:inline">New</span>

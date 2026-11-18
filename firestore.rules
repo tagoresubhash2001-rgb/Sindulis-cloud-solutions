@@ -338,7 +338,9 @@ service cloud.firestore {
         || (active() && resource.data.actorId == uid())
         || isDeptHeadOf(resource.data.departmentId)
         || (resource.data.projectId != null && canReadProject(resource.data.projectId));
-      allow create: if active() && data().actorId == uid() && data().at == request.time
+      // getAfter: the invite-claim batch logs "joined" while creating the employee record.
+      allow create: if (active() || (signedIn() && getAfter(empPath(uid())).data.active == true))
+        && data().actorId == uid() && data().at == request.time
         && str(data().action, 60) && str(data().summary, 500);
       allow update: if false;
       allow delete: if false;

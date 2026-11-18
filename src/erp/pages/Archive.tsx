@@ -38,7 +38,7 @@ export function ArchivePage() {
           <Select aria-label="Employee" value={f.person} onChange={(e) => setF({ ...f, person: e.target.value })}><option value="">Any employee</option>{ws.employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</Select>
           <Select aria-label="Department" value={f.dept} onChange={(e) => setF({ ...f, dept: e.target.value })}><option value="">All departments</option>{ws.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
           <Select aria-label="State" value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })}><option value="archived">Archived</option><option value="restored">Restored</option><option value="all">All</option></Select>
-          <div className="flex gap-1"><Input type="date" aria-label="From" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /><Input type="date" aria-label="To" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></div>
+          <div className="flex gap-1"><Input type="date" className="min-w-0" aria-label="From" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /><Input type="date" className="min-w-0" aria-label="To" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></div>
         </div>
       </Card>
       {live.error && <ErrorBanner message={live.error} />}

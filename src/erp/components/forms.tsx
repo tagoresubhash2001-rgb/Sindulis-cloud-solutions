@@ -110,7 +110,11 @@ export function ProjectForm({ project, onClose, onCreated }: { project?: Project
           },
           async () => {
             if (project) await updateProject(me, project, v);
-            else onCreated?.(await createProject(me, v));
+            else {
+              // Note: never `onCreated?.(await …)` — optional chaining would skip the call entirely.
+              const id = await createProject(me, v);
+              onCreated?.(id);
+            }
           },
           project ? 'Project updated' : 'Project created',
         )
@@ -203,7 +207,10 @@ export function TaskForm({ task, defaultProjectId, defaultMilestoneId, onClose, 
           },
           async () => {
             if (task) await updateTask(me, project!, task, final());
-            else onCreated?.(await createTask(me, project!, final()));
+            else {
+              const id = await createTask(me, project!, final());
+              onCreated?.(id);
+            }
           },
           task ? 'Task updated' : 'Task created',
         )

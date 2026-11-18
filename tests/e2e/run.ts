@@ -8,7 +8,7 @@
  * notifications, file upload, invite + verified first sign-in, mobile layout at 375 px.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { getFirestore } from 'firebase-admin/firestore';
 import type { Browser, BrowserContext, Page } from 'playwright';
@@ -25,6 +25,7 @@ const SHOTS = 'docs/screenshots';
 const email = (k: string) => DEMO_USERS.find((u) => u.key === k)!.email;
 const results: { step: string; ok: boolean; detail?: string }[] = [];
 let failed = false;
+let BROWSER: Browser | null = null;
 
 async function step(name: string, fn: () => Promise<void>) {
   const t = Date.now();
@@ -34,6 +35,8 @@ async function step(name: string, fn: () => Promise<void>) {
     console.log(`  ✔ ${name} (${Date.now() - t} ms)`);
   } catch (e) {
     failed = true;
+    let i = 0;
+    for (const c of BROWSER?.contexts() ?? []) for (const pg of c.pages()) await pg.screenshot({ path: `test-results/fail-${i++}.png` }).catch(() => undefined);
     results.push({ step: name, ok: false, detail: (e as Error).message });
     console.log(`  ✖ ${name}\n      ${(e as Error).message.split('\n').slice(0, 6).join('\n      ')}`);
     throw e;
@@ -42,13 +45,18 @@ async function step(name: string, fn: () => Promise<void>) {
 const expect = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };
 
 async function startVite(): Promise<ChildProcess> {
-  const proc = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
+  // Spawn the vite binary directly in its own process group so cleanup kills it (npx would orphan it).
+  const proc = spawn('node_modules/.bin/vite', ['--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
+    detached: true,
     env: { ...process.env, VITE_USE_EMULATORS: 'true', VITE_EMULATOR_PROJECT_ID: PROJECT, DISABLE_HMR: 'true' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   proc.stderr?.on('data', (d) => process.env.E2E_DEBUG && process.stderr.write(d));
+  let exited = false;
+  proc.on('exit', () => { exited = true; });
   for (let i = 0; i < 60; i++) {
-    try { if ((await fetch(BASE)).ok) return proc; } catch { /* not up yet */ }
+    if (exited) throw new Error(`Vite exited early — is port ${PORT} already in use by a stale dev server?`);
+    try { if ((await fetch(BASE)).ok && !exited) { await new Promise((r) => setTimeout(r, 300)); if (!exited) return proc; } } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error('Vite did not start');
@@ -58,6 +66,7 @@ async function login(browser: Browser, who: string, viewport = { width: 1440, he
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log(`    [${who} pageerror] ${e.message}`));
+  page.on('console', (m) => m.type() === 'error' && appendFileSync('test-results/console.log', `[${who}] ${m.text().slice(0, 600)}\n`));
   await page.goto(`${BASE}/erp/login`);
   await page.getByTestId('login-email').fill(who.includes('@') ? who : email(who));
   await page.getByTestId('login-password').fill(DEMO_PASSWORD);
@@ -75,6 +84,8 @@ async function main() {
   const db = getFirestore(adminApp(PROJECT));
   const vite = await startVite();
   const browser = await chromium.launch();
+  BROWSER = browser;
+  mkdirSync('test-results', { recursive: true });
   let taskId = '';
   let projectId = '';
   try {
@@ -107,8 +118,8 @@ async function main() {
     await step('Super Admin creates a client through the UI', async () => {
       await A.page.goto(`${BASE}/erp/clients`);
       await A.page.getByTestId('new-client').click();
-      await A.page.getByLabel('Client name *').fill('Acme Hospitals');
-      await A.page.getByLabel('Contact person').fill('Dr. Acme');
+      await A.page.getByRole('dialog').getByLabel('Client name *').fill('Acme Hospitals');
+      await A.page.getByRole('dialog').getByLabel('Contact person').fill('Dr. Acme');
       await A.page.getByTestId('form-submit').click();
       await A.page.getByText('CLI-0001').waitFor();
     });
@@ -116,26 +127,31 @@ async function main() {
     await step('Super Admin creates a project with a team', async () => {
       await A.page.goto(`${BASE}/erp/projects`);
       await A.page.getByTestId('new-project').click();
-      await A.page.getByLabel('Project name *').fill('Acme Patient Portal');
-      await A.page.getByLabel('Client *').selectOption({ label: 'CLI-0001 · Acme Hospitals' });
-      await A.page.getByLabel('Department *').selectOption({ label: 'Software' });
-      await A.page.getByLabel('Project manager *').selectOption({ label: 'Priya Menon' });
-      await A.page.getByLabel('Status').selectOption('ACTIVE');
-      for (const name of ['Arjun Varma', 'Divya Shah', 'Tarun Reddy']) await A.page.getByRole('checkbox', { name }).check();
+      await A.page.getByRole('dialog').getByLabel('Project name *').fill('Acme Patient Portal');
+      await A.page.getByRole('dialog').getByLabel('Client *').selectOption({ label: 'CLI-0001 · Acme Hospitals' });
+      await A.page.getByRole('dialog').getByLabel('Department *').selectOption({ label: 'Software' });
+      await A.page.getByRole('dialog').getByLabel('Project manager *').selectOption({ label: 'Priya Menon' });
+      await A.page.getByRole('dialog').getByLabel('Status').selectOption('ACTIVE');
+      for (const name of ['Arjun Varma', 'Divya Shah', 'Tarun Reddy']) await A.page.getByRole('dialog').getByRole('checkbox', { name }).check();
       await A.page.getByTestId('form-submit').click();
-      await A.page.getByText('PRJ-0001').first().waitFor();
-      projectId = A.page.url().split('/erp/projects/')[1]!.split('?')[0]!;
-      expect(projectId, 'project id from url');
+      for (let i = 0; i < 20 && !projectId; i++) {
+        const q = await db.collection('projects').get();
+        if (q.size) projectId = q.docs[0]!.id;
+        else await A.page.waitForTimeout(250);
+      }
+      expect(projectId, `project was not written to Firestore; toasts: ${await A.page.locator('[role=status],[role=alert]').allTextContents()}`);
+      await A.page.getByRole('link', { name: /PRJ-0001/ }).click();
+      await A.page.getByTestId('project-new-task').waitFor();
     });
 
     await step('Super Admin creates a task assigned to the employee, reviewed by QA', async () => {
       await A.page.getByTestId('project-new-task').click();
-      await A.page.getByLabel('Title *').fill('Build login screen');
-      await A.page.getByRole('checkbox', { name: 'Arjun Varma' }).check();
-      await A.page.getByLabel(/^Reviewer/).selectOption({ label: 'Divya Shah' });
+      await A.page.getByRole('dialog').getByLabel('Title *').fill('Build login screen');
+      await A.page.getByRole('dialog').getByRole('checkbox', { name: 'Arjun Varma' }).check();
+      await A.page.getByRole('dialog').getByLabel(/^Reviewer/).selectOption({ label: 'Divya Shah' });
       const due = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
       await A.page.getByTestId('task-due').fill(due);
-      await A.page.getByLabel('Estimated hours').fill('6');
+      await A.page.getByRole('dialog').getByLabel('Estimated hours').fill('6');
       await A.page.getByTestId('form-submit').click();
       await A.page.getByTestId('drawer-title').filter({ hasText: 'Build login screen' }).waitFor();
       taskId = new URL(A.page.url()).searchParams.get('task')!;
@@ -171,16 +187,18 @@ async function main() {
       await B.page.getByRole('tab', { name: /Checklist/ }).click();
       await B.page.getByTestId('checklist-input').fill('Email + password form');
       await B.page.getByRole('button', { name: 'Add' }).click();
-      await B.page.getByRole('checkbox', { name: 'Email + password form' }).check();
-      await B.page.waitForTimeout(800);
-      const t = await db.doc(`tasks/${taskId}`).get();
+      await B.page.getByRole('checkbox', { name: 'Email + password form' }).click();
+      let t = await db.doc(`tasks/${taskId}`).get();
+      for (let i = 0; i < 40 && t.get('checklistDone') !== 1; i++) { await B.page.waitForTimeout(250); t = await db.doc(`tasks/${taskId}`).get(); }
       expect(t.get('status') === 'IN_PROGRESS' && t.get('checklistDone') === 1 && t.get('checklistTotal') === 1, `task state ${t.get('status')} ${t.get('checklistDone')}/${t.get('checklistTotal')}`);
     });
 
     await step('Employee uploads a deliverable to Storage', async () => {
       await B.page.getByRole('tab', { name: /Files/ }).click();
       await B.page.getByTestId('file-input').setInputFiles({ name: 'login-mockup.txt', mimeType: 'text/plain', buffer: Buffer.from('mockup v1') });
-      await B.page.getByText('login-mockup.txt').waitFor({ timeout: 15000 });
+      await B.page.getByText('login-mockup.txt v1').waitFor({ timeout: 15000 });
+      const files = await db.collection('project_files').where('taskId', '==', taskId).get();
+      expect(files.size === 1 && files.docs[0]!.get('version') === 1, 'file metadata recorded');
     });
 
     await step('Employee submits for approval', async () => {
@@ -247,12 +265,12 @@ async function main() {
     await step('Super Admin archives the completed task, then restores it', async () => {
       await A.page.goto(`${BASE}/erp/tasks?task=${taskId}`);
       await A.page.getByTestId('archive-task').click();
-      await A.page.getByRole('button', { name: 'Archive', exact: true }).click();
+      await A.page.getByRole('dialog', { name: /Archive TSK/ }).getByRole('button', { name: 'Archive', exact: true }).click();
       await A.page.waitForTimeout(800);
       expect((await db.doc(`tasks/${taskId}`).get()).get('isArchived') === true, 'archived');
       await A.page.goto(`${BASE}/erp/archive`);
       await A.page.getByTestId(`archive-row-${taskId}`).getByTestId('restore-btn').click();
-      await A.page.getByRole('button', { name: 'Restore', exact: true }).click();
+      await A.page.getByRole('dialog', { name: 'Restore record?' }).getByRole('button', { name: 'Restore', exact: true }).click();
       await A.page.waitForTimeout(800);
       expect((await db.doc(`tasks/${taskId}`).get()).get('isArchived') === false, 'restored');
     });
@@ -308,7 +326,7 @@ async function main() {
     /* recorded in results */
   } finally {
     await browser.close();
-    vite.kill('SIGTERM');
+    try { process.kill(-vite.pid!, 'SIGTERM'); } catch { vite.kill('SIGTERM'); }
   }
   console.log(`\n${results.filter((r) => r.ok).length}/${results.length} E2E steps passed`);
   process.exit(failed ? 1 : 0);

@@ -14,3 +14,4 @@ ui-debug.log
 service-account*.json
 *-adminsdk-*.json
 test-results/
+test-results/

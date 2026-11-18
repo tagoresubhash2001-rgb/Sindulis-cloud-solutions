@@ -28,19 +28,27 @@ export function ErpAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [state, setState] = useState<AuthState>({ status: 'loading' });
   const [nonce, setNonce] = useState(0);
+  // While paused no Firestore listener is open, so ID-token refreshes cannot race an active
+  // listener (Firestore SDK 11 can hit an internal assertion if they overlap).
+  const [paused, setPaused] = useState(false);
   const claiming = useRef(false);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
 
   useEffect(() => {
-    if (user === undefined) return;
+    if (user === undefined || paused) return;
     if (user === null) {
       setState({ status: 'signedOut' });
       return;
     }
-    setState({ status: 'loading' });
+    setState((s) => (s.status === 'ready' && s.user.uid === user.uid ? s : { status: 'loading' }));
     let cancelled = false;
-    const unsub = subscribeEmployee(
+    let unsub: (() => void) | null = null;
+    const stop = () => {
+      unsub?.();
+      unsub = null;
+    };
+    unsub = subscribeEmployee(
       user.uid,
       async (emp) => {
         if (cancelled) return;
@@ -48,23 +56,18 @@ export function ErpAuthProvider({ children }: { children: ReactNode }) {
           setState(emp.active ? { status: 'ready', user, employee: emp } : { status: 'inactive', user, employee: emp });
           return;
         }
-        // No employee record yet: try to claim an invite for this (verified) email.
+        // No employee record yet: close the listener, then try to claim an invite for this verified email.
+        stop();
         const email = user.email?.toLowerCase();
         const invite = email ? await getDoc(docRef(COL.invites, email)).catch(() => null) : null;
         if (cancelled) return;
-        if (!invite?.exists()) {
-          setState({ status: 'noAccess', user });
-          return;
-        }
-        if (!user.emailVerified) {
-          setState({ status: 'unverified', user });
-          return;
-        }
+        if (!invite?.exists()) return setState({ status: 'noAccess', user });
+        if (!user.emailVerified) return setState({ status: 'unverified', user });
         if (claiming.current) return;
         claiming.current = true;
         try {
-          await user.getIdToken(true);
-          await claimInvite(user); // snapshot fires again with the new record
+          await claimInvite(user);
+          if (!cancelled) setNonce((n) => n + 1); // resubscribe to the new employee record
         } catch (e) {
           if (!cancelled) setState({ status: 'noAccess', user, error: (e as Error).message });
         } finally {
@@ -75,9 +78,9 @@ export function ErpAuthProvider({ children }: { children: ReactNode }) {
     );
     return () => {
       cancelled = true;
-      unsub();
+      stop();
     };
-  }, [user, nonce]);
+  }, [user, nonce, paused]);
 
   const signOutNow = useCallback(async () => {
     await signOut(auth);
@@ -85,10 +88,15 @@ export function ErpAuthProvider({ children }: { children: ReactNode }) {
 
   const recheck = useCallback(async () => {
     if (!auth.currentUser) return;
-    await auth.currentUser.reload();
-    await auth.currentUser.getIdToken(true);
-    setUser(auth.currentUser);
-    setNonce((n) => n + 1);
+    setPaused(true);
+    try {
+      await auth.currentUser.reload();
+      await auth.currentUser.getIdToken(true);
+      setUser(auth.currentUser);
+    } finally {
+      setPaused(false);
+      setNonce((n) => n + 1);
+    }
   }, []);
 
   const resendVerification = useCallback(async () => {

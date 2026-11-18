@@ -27,6 +27,7 @@
     "node_modules",
     "dist",
     "src/erp",
-    "functions"
+    "functions",
+    "tests/e2e"
   ]
 }

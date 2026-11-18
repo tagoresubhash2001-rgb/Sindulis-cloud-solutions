@@ -32,7 +32,7 @@ export function ActivityPage() {
           <Select aria-label="Project" value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })}><option value="">All projects</option>{ws.projects.map((p) => <option key={p.id} value={p.id}>{p.code}</option>)}</Select>
           <Select aria-label="Person" value={f.actor} onChange={(e) => setF({ ...f, actor: e.target.value })}><option value="">Everyone</option>{ws.employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</Select>
           <Select aria-label="Type" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="">All types</option>{types.map((t) => <option key={t} value={t}>{t}</option>)}</Select>
-          <div className="flex gap-1 col-span-2 md:col-span-1"><Input type="date" aria-label="From" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /><Input type="date" aria-label="To" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></div>
+          <div className="flex gap-1 col-span-2 md:col-span-1"><Input type="date" className="min-w-0" aria-label="From" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /><Input type="date" className="min-w-0" aria-label="To" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></div>
         </div>
       </Card>
       <Card title={`${rows.length} entries${rows.length > shown.length ? ` (showing latest ${shown.length})` : ''}`}>{live.loading ? <Spinner /> : <ActivityList logs={shown} showEntity />}</Card>

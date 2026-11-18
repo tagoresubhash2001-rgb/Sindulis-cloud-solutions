@@ -87,9 +87,9 @@ export function TaskFilters({ value, onChange, hideProject }: { value: TaskFilte
         {TASK_STATUSES.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
       </Select>
       <div className="col-span-2 flex items-center gap-1.5">
-        <Input type="date" aria-label="Due from" value={value.dueFrom} onChange={(e) => set('dueFrom', e.target.value)} />
+        <Input type="date" aria-label="Due from" className="min-w-0" value={value.dueFrom} onChange={(e) => set('dueFrom', e.target.value)} />
         <span className="text-slate-400 text-xs">to</span>
-        <Input type="date" aria-label="Due to" value={value.dueTo} onChange={(e) => set('dueTo', e.target.value)} />
+        <Input type="date" aria-label="Due to" className="min-w-0" value={value.dueTo} onChange={(e) => set('dueTo', e.target.value)} />
       </div>
       <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><input type="checkbox" checked={value.overdue} onChange={(e) => set('overdue', e.target.checked)} className="rounded border-slate-300" /> Overdue only</label>
       <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><input type="checkbox" checked={value.showArchived} onChange={(e) => set('showArchived', e.target.checked)} className="rounded border-slate-300" /> Archived</label>
