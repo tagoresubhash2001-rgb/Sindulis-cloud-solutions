@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.erp.json",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore,storage --project demo-sindulis-rules \"vitest run -c vitest.rules.config.ts\"",
-    "test:e2e": "firebase emulators:exec --only auth,firestore,storage --project demo-sindulis \"node tests/e2e/run.mjs\"",
+    "test:e2e": "firebase emulators:exec --only auth,firestore,storage --project demo-sindulis \"tsx tests/e2e/run.ts\"",
     "emulators": "firebase emulators:start --project demo-sindulis",
     "bootstrap:super-admin": "tsx scripts/bootstrap-super-admin.ts",
     "seed:demo": "tsx scripts/seed-demo.ts"
