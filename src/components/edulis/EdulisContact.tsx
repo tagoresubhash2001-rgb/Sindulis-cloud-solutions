@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { saveLeadOrAlert } from '../../lib/leads';
 import { Mail, Phone, MapPin, Send, CheckCircle2, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { FAQ_ITEMS as EDULIS_FAQS } from '../../data/edulisData';
 
@@ -15,8 +16,10 @@ export const EdulisContact: React.FC = () => {
   const [submitted, setSubmitted] = useState(false);
   const [openFaq, setOpenFaq] = useState<string | null>('faq-1');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const { name, email, phone, college, role, studentsCount, message } = formData;
+    if (!(await saveLeadOrAlert('edulis-contact', { name, email, phone, company: college, message, extra: { role, studentsCount } }))) return;
     setSubmitted(true);
   };
 

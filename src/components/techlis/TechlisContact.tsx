@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { saveLeadOrAlert } from '../../lib/leads';
 import { Mail, Phone, MapPin, Send, CheckCircle2, ShieldCheck, Cpu } from 'lucide-react';
 
 export const TechlisContact: React.FC = () => {
@@ -14,8 +15,10 @@ export const TechlisContact: React.FC = () => {
 
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const { name, company, email, phone, serviceTier, budget, message } = formData;
+    if (!(await saveLeadOrAlert('techlis-contact', { name, company, email, phone, service: serviceTier, message, extra: { budget } }))) return;
     setSubmitted(true);
   };
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { saveLeadOrAlert } from '../../lib/leads';
 import { Mail, Phone, MapPin, CheckCircle2, Send, Sparkles, ArrowRight } from 'lucide-react';
 import { SinfoxPage } from '../../types';
 
@@ -103,9 +104,15 @@ export const SinfoxContact: React.FC<SinfoxContactProps> = ({
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.consent) return;
+    const { name, email, phone, company, message, role, industry, stage, objectives, constraints, capabilities, timeline, investment, website } = formData;
+    const saved = await saveLeadOrAlert('sinfox-contact', {
+      name, email, phone, company, message, service: capabilities.join(', '),
+      extra: { role, industry, stage, objectives, constraints, capabilities, timeline, investment, website, consent: 'yes' },
+    });
+    if (!saved) return;
     setSubmitted(true);
   };
 

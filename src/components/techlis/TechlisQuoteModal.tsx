@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { saveLeadOrAlert } from '../../lib/leads';
 import { X, CheckCircle2, Send, Cpu, ShieldCheck } from 'lucide-react';
 
 interface TechlisQuoteModalProps {
@@ -31,8 +32,10 @@ export const TechlisQuoteModal: React.FC<TechlisQuoteModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const { name, company, email, phone, service, details } = formData;
+    if (!(await saveLeadOrAlert('techlis-quote', { name, company, email, phone, service, message: details }))) return;
     setSubmitted(true);
   };
 

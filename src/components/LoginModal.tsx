@@ -1,16 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { X, Lock, Key, ShieldCheck, AlertCircle } from 'lucide-react';
-import {
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  type User,
-} from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../lib/firebase';
+
+// Firebase Auth is loaded on demand so the public site's initial bundle stays small.
+const loadAuth = async () => {
+  const [{ auth }, sdk] = await Promise.all([import('../lib/firebase'), import('firebase/auth')]);
+  return { auth, ...sdk };
+};
 
 interface LoginModalProps {
   onClose: () => void;
@@ -45,9 +42,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLoginSuccess 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(auth.currentUser);
+  const [user, setUser] = useState<User | null>(null);
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
+    loadAuth().then(({ auth, onAuthStateChanged }) => {
+      if (!cancelled) unsub = onAuthStateChanged(auth, setUser);
+    });
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, []);
 
   const finish = (signedInEmail: string) => {
     onLoginSuccess?.(signedInEmail);
@@ -61,6 +68,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLoginSuccess 
     setInfo(null);
     setIsLoading(true);
     try {
+      const { auth, signInWithEmailAndPassword } = await loadAuth();
       const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
       finish(cred.user.email ?? email.trim());
     } catch (err) {
@@ -75,6 +83,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLoginSuccess 
     setInfo(null);
     setIsLoading(true);
     try {
+      const { auth, signInWithPopup, GoogleAuthProvider } = await loadAuth();
       const cred = await signInWithPopup(auth, new GoogleAuthProvider());
       finish(cred.user.email ?? '');
     } catch (err) {
@@ -92,6 +101,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLoginSuccess 
       return;
     }
     try {
+      const { auth, sendPasswordResetEmail } = await loadAuth();
       await sendPasswordResetEmail(auth, email.trim());
     } catch {
       // Do not reveal whether the address exists.
@@ -100,6 +110,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLoginSuccess 
   };
 
   const handleLogout = async () => {
+    const { auth, signOut } = await loadAuth();
     await signOut(auth);
     onClose();
   };

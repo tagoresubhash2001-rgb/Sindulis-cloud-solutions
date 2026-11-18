@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { saveLeadOrAlert } from '../../lib/leads';
 import { X, CheckCircle2, Send, Sparkles } from 'lucide-react';
 
 interface SinfoxQuoteModalProps {
@@ -25,8 +26,10 @@ export const SinfoxQuoteModal: React.FC<SinfoxQuoteModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const { name, company, email, phone, service, budget, message } = formData;
+    if (!(await saveLeadOrAlert('sinfox-quote', { name, company, email, phone, service, message, extra: { budget } }))) return;
     setSubmitted(true);
   };
 

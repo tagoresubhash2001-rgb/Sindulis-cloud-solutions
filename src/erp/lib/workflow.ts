@@ -51,7 +51,13 @@ export interface TransitionInput {
   reason?: string;
 }
 
-export type Check = { ok: true } | { ok: false; reason: string };
+/** `reason` is empty when `ok` is true. */
+export interface Check {
+  ok: boolean;
+  reason: string;
+}
+const OK: Check = { ok: true, reason: '' };
+const no = (reason: string): Check => ({ ok: false, reason });
 
 export function checkTransition(
   actor: Employee,
@@ -61,35 +67,35 @@ export function checkTransition(
   input: TransitionInput = {},
 ): Check {
   const def = TRANSITIONS.find((t) => t.kind === kind);
-  if (!def) return { ok: false, reason: 'Unknown transition' };
+  if (!def) return no('Unknown transition');
   if (!def.from.includes(task.status)) {
     return { ok: false, reason: `Cannot ${def.label.toLowerCase()} a task that is ${task.status.replace('_', ' ').toLowerCase()}` };
   }
-  if (task.isArchived) return { ok: false, reason: 'Archived tasks are read-only' };
-  if (!canWrite(actor)) return { ok: false, reason: 'Your role is read-only' };
+  if (task.isArchived) return no('Archived tasks are read-only');
+  if (!canWrite(actor)) return no('Your role is read-only');
   const manager = canManageTasks(actor, project);
 
   switch (kind) {
     case 'START':
     case 'SUBMIT':
-      if (!isAssignee(actor, task) && !manager) return { ok: false, reason: 'Only assignees can work on this task' };
-      if (kind === 'SUBMIT' && !task.reviewerId) return { ok: false, reason: 'Set a reviewer before submitting' };
-      return { ok: true };
+      if (!isAssignee(actor, task) && !manager) return no('Only assignees can work on this task');
+      if (kind === 'SUBMIT' && !task.reviewerId) return no('Set a reviewer before submitting');
+      return OK;
     case 'APPROVE':
-      if (!canReviewTask(actor, task, project)) return { ok: false, reason: 'Only the reviewer or a manager can approve' };
-      return { ok: true };
+      if (!canReviewTask(actor, task, project)) return no('Only the reviewer or a manager can approve');
+      return OK;
     case 'REJECT':
-      if (!canReviewTask(actor, task, project)) return { ok: false, reason: 'Only the reviewer or a manager can reject' };
-      if (!input.comment?.trim()) return { ok: false, reason: 'Feedback is required when rejecting' };
-      return { ok: true };
+      if (!canReviewTask(actor, task, project)) return no('Only the reviewer or a manager can reject');
+      if (!input.comment?.trim()) return no('Feedback is required when rejecting');
+      return OK;
     case 'CANCEL':
-      if (!manager) return { ok: false, reason: 'Only managers can cancel tasks' };
-      if (!input.reason?.trim()) return { ok: false, reason: 'A cancellation reason is required' };
-      return { ok: true };
+      if (!manager) return no('Only managers can cancel tasks');
+      if (!input.reason?.trim()) return no('A cancellation reason is required');
+      return OK;
     case 'REOPEN':
     case 'REINSTATE':
-      if (!manager) return { ok: false, reason: 'Only managers can reopen tasks' };
-      return { ok: true };
+      if (!manager) return no('Only managers can reopen tasks');
+      return OK;
   }
 }
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { saveLeadOrAlert } from '../lib/leads';
 import { EcosystemCardData } from '../types';
 import { X, Send, Sparkles, CheckCircle2, Clock } from 'lucide-react';
 
@@ -18,9 +19,11 @@ export const WaitlistModal: React.FC<WaitlistModalProps> = ({
   const [organization, setOrganization] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
+    const saved = await saveLeadOrAlert('portal-waitlist', { name: fullName, email, company: organization, service: card.title });
+    if (!saved) return;
     setIsSubmitted(true);
     setTimeout(() => {
       onShowToast(`Thank you ${fullName || 'Innovator'}! You're added to the early access list for ${card.title}.`);

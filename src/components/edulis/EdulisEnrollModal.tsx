@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { saveLeadOrAlert } from '../../lib/leads';
 import { DOMAIN_TRACKS, EDULIS_PROGRAMS } from '../../data/edulisData';
 import { X, CheckCircle2, Sparkles, GraduationCap, ArrowRight, ShieldCheck } from 'lucide-react';
 
@@ -40,9 +41,11 @@ export const EdulisEnrollModal: React.FC<Props> = ({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (validate()) {
+      const { name, email, phone, college, degree, program, gradYear } = formData;
+      if (!(await saveLeadOrAlert('edulis-enroll', { name, email, phone, company: college, service: program, extra: { degree, program, gradYear } }))) return;
       setSubmitted(true);
     }
   };

@@ -3,7 +3,6 @@ import {createRoot} from 'react-dom/client';
 import {BrowserRouter, Route, Routes} from 'react-router-dom';
 import App from './App.tsx';
 import './index.css';
-import './lib/firebase';
 
 // The ERP is a separate lazy-loaded bundle so the public site stays lean.
 const ErpApp = lazy(() => import('./erp/routes/ErpApp'));
@@ -13,6 +12,11 @@ const ErpFallback = () => (
     Loading SINDULIS ERP…
   </div>
 );
+
+// Initialise Firebase (and Analytics) after first paint; the SDK is a shared async chunk.
+const initFirebase = () => void import('./lib/firebase');
+if ('requestIdleCallback' in window) (window as Window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(initFirebase);
+else setTimeout(initFirebase, 1);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
